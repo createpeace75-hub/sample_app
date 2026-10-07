@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>発表順ランダム選出ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        /* カスタムアニメーション定義 */
+        @keyframes bounce-slow {
+            0%, 100% { transform: translateY(-5%); }
+            50% { transform: translateY(0); }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(255, 215, 0, 0.6); }
+            50% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.9); }
+        }
+
+        @keyframes pop-in {
+            0% { transform: scale(0.5); opacity: 0; }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .animate-bounce-slow {
+            animation: bounce-slow 2s infinite ease-in-out;
+        }
+
+        .animate-pop {
+            animation: pop-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        .glow-effect {
+            animation: pulse-glow 2s infinite ease-in-out;
+        }
+
+        @keyframes winner-glow {
+            0%, 100% {
+                text-shadow: 0 0 0 rgba(255, 215, 0, 0), 0 0 0 rgba(255, 255, 255, 0);
+                transform: scale(1);
+            }
+            25% {
+                text-shadow: 0 0 18px rgba(255, 215, 0, 0.9), 0 0 32px rgba(251, 191, 36, 0.8);
+                transform: scale(1.04);
+            }
+            50% {
+                text-shadow: 0 0 28px rgba(255, 255, 255, 0.95), 0 0 44px rgba(168, 85, 247, 0.9);
+                transform: scale(1.08);
+            }
+            75% {
+                text-shadow: 0 0 20px rgba(255, 215, 0, 0.9), 0 0 36px rgba(244, 114, 182, 0.8);
+                transform: scale(1.04);
+            }
+        }
+
+        @keyframes stage-flash {
+            0%, 100% { opacity: 0; }
+            8% { opacity: 0.88; }
+            35% { opacity: 0.18; }
+        }
+
+        /* スロット数字のぼかし効果 */
+        .blur-motion {
+            filter: blur(2px);
+            transform: scale(1.05);
+            transition: all 0.05s ease-out;
+        }
+
+        .winner-glow {
+            animation: winner-glow 0.9s ease-in-out 2;
+        }
+
+        .stage-flash {
+            position: fixed;
+            inset: 0;
+            z-index: 60;
+            pointer-events: none;
+            background: radial-gradient(circle, rgba(255,255,255,0.98) 0%, rgba(255,244,190,0.78) 16%, rgba(250,204,21,0.32) 38%, rgba(168,85,247,0) 76%);
+            animation: stage-flash 0.42s ease-out forwards;
+        }
+
+        /* 紙吹雪用のキャンバス */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .stage-flash { display: none; }
+        }
+    </style>
+</head>
+<body class="text-gray-800 p-4 md:p-8 flex flex-col items-center justify-center relative min-h-screen">
+    <canvas id="confetti-canvas"></canvas>
+
+    <div class="max-w-4xl w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl p-6 md:p-10 border-4 border-white/50 my-auto relative overflow-hidden z-10">
+        
+        <!-- ヘッダータイトル -->
+        <header class="text-center mb-8">
+            <div class="inline-block bg-amber-400 text-amber-950 text-xs md:text-sm font-black px-4 py-1.5 rounded-full mb-2 uppercase tracking-wider shadow-sm">
+                Random Presenter Selector
+            </div>
+            <h1 class="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-indigo-600 tracking-tight">
+                発表順 ランダム選出
+            </h1>
+            <p class="text-gray-500 text-sm md:text-base mt-2 font-bold">
+                ボタンを押して次の発表者をワクワク決定！
+            </p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            
+            <!-- メイン抽選エリア (左/上側) -->
+            <div class="lg:col-span-7 flex flex-col items-center justify-center bg-slate-50 rounded-2xl p-6 border-2 border-slate-100 shadow-inner min-h-[320px] relative">
+                
+                <!-- 現在の順番インジケーター -->
+                <div id="turn-badge" class="absolute top-4 left-4 bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full">
+                    第 <span id="current-turn-num">1</span> 名目の選出
+                </div>
+
+                <!-- 候補者編集モーダル起動ボタン -->
+                <button id="edit-btn" onclick="openEditModal()" class="absolute top-4 right-4 text-xs font-bold text-gray-500 hover:text-indigo-600 bg-white border border-gray-200 hover:border-indigo-300 px-3 py-1 rounded-full shadow-sm transition">
+                    ⚙ 候補者編集
+                </button>
+
+                <!-- メインディスプレイ（結果表示部） -->
+                <div class="my-8 text-center w-full px-4">
+                    <div id="display-label" class="text-sm font-bold text-gray-400 mb-2">
+                        準備完了
+                    </div>
+                    <div id="display-name" class="text-4xl md:text-6xl font-black text-indigo-950 py-6 min-h-[100px] flex items-center justify-center tracking-wide transition-all">
+                        ???
+                    </div>
+                </div>
+
+                <!-- 選出アクションボタン -->
+                <div class="w-full flex justify-center mt-2">
+                    <button id="select-btn" onclick="drawNext()" class="w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-black text-xl md:text-2xl rounded-2xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 active:translate-y-0 transition-all duration-150 flex items-center justify-center gap-3 border-b-4 border-orange-700">
+                        <svg class="w-8 h-8 animate-bounce-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14.752 11.168l-3.197-2.132A1 1 0 007 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span>選出スタート！</span>
+                    </button>
+                </div>
+
+                <!-- プログレスバー -->
+                <div class="w-full mt-6 bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                    <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                
+                <!-- 選出確定リスト -->
+                <div class="bg-white rounded-2xl p-5 border-2 border-slate-100 shadow-sm">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-bold text-gray-700 text-base flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+                            決定した発表順
+                        </h2>
+                        <span id="completed-count" class="text-xs font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">0 / 5</span>
+                    </div>
+
+                    <ol id="result-list" class="space-y-2 min-h-[180px]">
+                        <li class="text-xs text-gray-400 text-center py-8 italic border-2 border-dashed border-gray-100 rounded-xl">
+                            まだ選出されていません
+                        </li>
+                    </ol>
+                </div>
+
+                <!-- コントロールボタン群 -->
+                <div class="flex gap-2">
+                    <button onclick="resetApp()" class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm transition flex items-center justify-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        やり直す
+                    </button>
+                    <button onclick="regenerateCandidates()" class="flex-1 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-sm transition flex items-center justify-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        新しい名前にチェンジ
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-200" id="modal-content">
+            <h3 class="text-xl font-bold text-gray-800 mb-2">発表候補者の編集</h3>
+            <p class="text-xs text-gray-500 mb-4">5名の候補者名を1行ずつ入力してください。</p>
+            
+            <textarea id="modal-names-input" rows="5" class="w-full border-2 border-gray-200 rounded-xl p-3 focus:outline-none focus:border-indigo-500 text-sm font-bold text-gray-700 resize-none leading-relaxed"></textarea>
+            
+            <div class="flex justify-end gap-3 mt-6">
+                <button onclick="closeEditModal()" class="px-5 py-2.5 rounded-xl font-bold text-gray-500 hover:bg-gray-100 text-sm">キャンセル</button>
+                <button onclick="saveCandidatesFromModal()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-md">保存して更新</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 日本姓のランダムサンプルリスト
+        const JAPANESE_SURNAMES = [
+            "佐藤", "鈴木", "高橋", "田中", "伊藤", 
+            "渡辺", "山本", "中村", "小林", "加藤", 
+            "吉田", "山田", "佐々木", "山口", "松本", 
+            "井上", "木村", "林", "斎藤", "清水",
+            "山崎", "阿部", "森", "池田", "橋本",
+            "阿久津", "神宮寺", "西園寺", "五十嵐", "小野寺"
+        ];
+
+        // アプリケーション状態変数
+        let candidates = [];        // 現在の5名の候補者一覧
+        let remainingCandidates = [];// まだ選ばれていない候補者
+        let selectedOrder = [];     // 確定した順番
+        let isSpinning = false;     // アニメーション中かどうか
+        let audioCtx = null;        // Web Audio APIコンテキスト
+        let masterGain = null;      // 効果音のボリューム調整用
+
+        // ページロード時の初期化
+        window.addEventListener('DOMContentLoaded', () => {
+            generateRandomCandidates();
+            setupConfetti();
+        });
+
+        // Web Audio APIのイニシャライズ（ユーザー操作時）
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterGain = audioCtx.createGain();
+                masterGain.gain.value = 0.8;
+                masterGain.connect(audioCtx.destination);
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // 効果音生成機能 (ドラムロール/ピピ音/ファンファーレ)
+        function playSound(type) {
+            try {
+                initAudio();
+                if (!audioCtx || !masterGain) return;
+
+                if (type === 'tick') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    const volume = 0.07;
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(420 + Math.random() * 220, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
+                    osc.connect(gain);
+                    gain.connect(masterGain);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.06);
+
+                } else if (type === 'win') {
+                    const notes = [523.25, 659.25, 783.99, 1046.50, 1174.66];
+                    notes.forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        const startAt = audioCtx.currentTime + idx * 0.08;
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(freq, startAt);
+                        gain.gain.setValueAtTime(0.18, startAt);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.7);
+                        osc.connect(gain);
+                        gain.connect(masterGain);
+                        osc.start(startAt);
+                        osc.stop(startAt + 0.7);
+                    });
+                }
+            } catch (e) {
+                console.log("Audio play error:", e);
+            }
+        }
+
+        // ランダムな日本姓5名を新しく生成
+        function generateRandomCandidates() {
+            const shuffled = [...JAPANESE_SURNAMES].sort(() => 0.5 - Math.random());
+            candidates = shuffled.slice(0, 5);
+            resetApp();
+        }
+
+        // アプリの状態リセット
+        function resetApp() {
+            if (isSpinning) return;
+            remainingCandidates = [...candidates];
+            selectedOrder = [];
+            
+            updateUI();
+
+            const displayName = document.getElementById('display-name');
+            displayName.innerText = "???";
+            displayName.classList.remove('text-amber-500', 'scale-110');
+            displayName.classList.add('text-indigo-950');
+
+            document.getElementById('display-label').innerText = "準備完了";
+            
+            const btn = document.getElementById('select-btn');
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed', 'from-gray-400', 'to-gray-500');
+            btn.classList.add('from-amber-400', 'to-orange-500');
+            btn.querySelector('span').innerText = "選出スタート！";
+        }
+
+        // 候補者全体の再生成ボタン動作
+        function regenerateCandidates() {
+            if (isSpinning) return;
+            generateRandomCandidates();
+        }
+
+        // 次の発表者を選出
+        function drawNext() {
+            if (isSpinning || remainingCandidates.length === 0) return;
+
+            isSpinning = true;
+            initAudio();
+
+            const selectBtn = document.getElementById('select-btn');
+            const editBtn = document.getElementById('edit-btn');
+            selectBtn.disabled = true;
+            editBtn.disabled = true;
+            selectBtn.classList.add('opacity-80');
+
+            const displayName = document.getElementById('display-name');
+            const displayLabel = document.getElementById('display-label');
+
+            displayLabel.innerText = "抽選中...";
+            displayName.classList.add('blur-motion');
+
+            // 当選者の選定（残りの配列から1人ランダム選択）
+            const winningIndex = Math.floor(Math.random() * remainingCandidates.length);
+            const winner = remainingCandidates[winningIndex];
+
+            // シャッフル・ドラムロール演出の設定
+            let counter = 0;
+            let speed = 50; // 開始ミリ秒
+            const totalDuration = 2500; // 全体の演出時間（ミリ秒）
+            const startTime = Date.now();
+
+            function spinStep() {
+                const elapsedTime = Date.now() - startTime;
+
+                // 表示名の高速入れ替え
+                const randomTempName = remainingCandidates[Math.floor(Math.random() * remainingCandidates.length)];
+                displayName.innerText = randomTempName + " さん";
+                playSound('tick');
+
+                if (elapsedTime < totalDuration) {
+                    // 時間経過とともに徐々に遅く（減速イージング）
+                    const progress = elapsedTime / totalDuration;
+                    speed = 50 + Math.pow(progress, 3) * 350; 
+                    setTimeout(spinStep, speed);
+                } else {
+                    // 選出確定アニメーション
+                    finalizeSelection(winner, winningIndex);
+                }
+            }
+
+            spinStep();
+        }
+
+        // 選出完了処理
+        function finalizeSelection(winner, winningIndex) {
+            // 配列から選出された人を削除し結果に追加
+            remainingCandidates.splice(winningIndex, 1);
+            selectedOrder.push(winner);
+
+            const displayName = document.getElementById('display-name');
+            const displayLabel = document.getElementById('display-label');
+            const turnNum = selectedOrder.length;
+
+            displayName.classList.remove('blur-motion');
+            displayName.innerText = winner + " さん";
+            
+            // ポップインとハイライトアニメーション
+            displayName.classList.add('animate-pop', 'text-amber-500');
+            displayLabel.innerText = `第 ${turnNum} 発表者に決定！`;
+
+            // ファンファーレ音 & 紙吹雪
+            playSound('win');
+            displayName.classList.add('winner-glow');
+            triggerConfetti();
+
+            // UIの決定結果リスト更新
+            updateUI();
+
+            setTimeout(() => {
+                displayName.classList.remove('animate-pop', 'winner-glow');
+                isSpinning = false;
+                
+                const selectBtn = document.getElementById('select-btn');
+                const editBtn = document.getElementById('edit-btn');
+                selectBtn.disabled = false;
+                editBtn.disabled = false;
+                selectBtn.classList.remove('opacity-80');
+
+                // 全員選出完了の場合
+                if (remainingCandidates.length === 0) {
+                    displayLabel.innerText = "🎉 全員の順番が決定しました！";
+                    selectBtn.disabled = true;
+                    selectBtn.classList.add('opacity-50', 'cursor-not-allowed', 'from-gray-400', 'to-gray-500');
+                    selectBtn.classList.remove('from-amber-400', 'to-orange-500');
+                    selectBtn.querySelector('span').innerText = "選出完了";
+                }
+            }, 500);
+        }
+
+        // UI状態の統合更新
+        function updateUI() {
+            // プログレスバー
+            const completedCount = selectedOrder.length;
+            const progressPercent = (completedCount / 5) * 100;
+            document.getElementById('progress-bar').style.width = `${progressPercent}%`;
+
+            // カウント表記
+            document.getElementById('completed-count').innerText = `${completedCount} / 5`;
+            
+            // 次のターン表示
+            const nextTurn = Math.min(completedCount + 1, 5);
+            document.getElementById('current-turn-num').innerText = nextTurn;
+
+            // 確定リストの描画
+            const resultList = document.getElementById('result-list');
+            if (selectedOrder.length === 0) {
+                resultList.innerHTML = `
+                    <li class="text-xs text-gray-400 text-center py-8 italic border-2 border-dashed border-gray-100 rounded-xl">
+                        「選出スタート！」を押すと<br>順番がここに表示されます
+                    </li>`;
+            } else {
+                resultList.innerHTML = selectedOrder.map((name, index) => `
+                    <li class="flex items-center justify-between p-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-xl animate-pop">
+                        <div class="flex items-center gap-3">
+                            <span class="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-sm">
+                                ${index + 1}
+                            </span>
+                            <span class="font-bold text-gray-800 text-base">${name} <span class="text-xs font-normal text-gray-500">さん</span></span>
+                        </div>
+                        <span class="text-xs text-emerald-600 font-bold bg-emerald-100 px-2 py-0.5 rounded">確定</span>
+                    </li>
+                `).join('');
+            }
+        }
+
+        // 編集モーダル制御
+        function openEditModal() {
+            if (isSpinning) return;
+            const modal = document.getElementById('edit-modal');
+            const input = document.getElementById('modal-names-input');
+            input.value = candidates.join('\n');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                document.getElementById('modal-content').classList.remove('scale-95');
+            }, 10);
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById('edit-modal');
+            document.getElementById('modal-content').classList.add('scale-95');
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        function saveCandidatesFromModal() {
+            const input = document.getElementById('modal-names-input').value;
+            const lines = input.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+            
+            if (lines.length < 5) {
+                alert("5名分の名前を入力してください。");
+                return;
+            }
+
+            candidates = lines.slice(0, 5);
+            closeEditModal();
+            resetApp();
+        }
+
+        // 紙吹雪(Confetti)エフェクト
+        let confettiParticles = [];
+        let fireworksParticles = [];
+        let confettiCanvas, confettiCtx;
+        let confettiFrame = null;
+
+        function setupConfetti() {
+            confettiCanvas = document.getElementById('confetti-canvas');
+            confettiCtx = confettiCanvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            if (!confettiCanvas) return;
+            const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+            confettiCanvas.width = window.innerWidth * pixelRatio;
+            confettiCanvas.height = window.innerHeight * pixelRatio;
+            confettiCanvas.style.width = `${window.innerWidth}px`;
+            confettiCanvas.style.height = `${window.innerHeight}px`;
+            confettiCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        }
+
+        function triggerConfetti() {
+            if (!confettiCtx) return;
+
+            const colors = ['#ff3158', '#a855f7', '#22d3ee', '#34d399', '#ffb703', '#fff275', '#ff72c6', '#ffffff'];
+            const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const confettiCount = reducedMotion ? 45 : 180;
+
+            for (let i = 0; i < confettiCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 3 + Math.random() * 9;
+                confettiParticles.push({
+                    x: width / 2,
+                    y: height * 0.58,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 5,
+                    size: 4 + Math.random() * 8,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    rotation: Math.random() * 360,
+                    rSpeed: (Math.random() - 0.5) * 18,
+                    opacity: 1,
+                    gravity: 0.16 + Math.random() * 0.2,
+                    shape: Math.random() > 0.55 ? 'rect' : 'circle'
+                });
+            }
+
+            const burstCount = reducedMotion ? 2 : 6;
+            for (let burst = 0; burst < burstCount; burst++) {
+                setTimeout(() => launchFirework(colors, burst), reducedMotion ? 0 : burst * 300);
+            }
+
+            startConfettiAnimation();
+        }
+
+        function launchFirework(colors, burstIndex) {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const targetX = width * (0.16 + Math.random() * 0.68);
+            const targetY = height * (0.12 + Math.random() * 0.36);
+            const startX = width * (0.2 + Math.random() * 0.6);
+            const distance = Math.hypot(targetX - startX, height - targetY);
+            const duration = 32 + Math.floor(Math.random() * 14);
+
+            fireworksParticles.push({
+                kind: 'rocket',
+                x: startX,
+                y: height + 8,
+                startX,
+                startY: height + 8,
+                targetX,
+                targetY,
+                progress: 0,
+                duration,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                trail: [],
+                trailLength: Math.max(8, Math.round(distance / 22)),
+                burstIndex
+            });
+
+            if (burstIndex === 0 || burstIndex === 4) {
+                const flash = document.createElement('div');
+                flash.className = 'stage-flash';
+                document.body.appendChild(flash);
+                setTimeout(() => flash.remove(), 450);
+            }
+
+            startConfettiAnimation();
+        }
+
+        function explodeFirework(rocket, colors) {
+            const particleCount = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 18 : 58;
+            const color = rocket.color || colors[Math.floor(Math.random() * colors.length)];
+
+            for (let i = 0; i < particleCount; i++) {
+                const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.08;
+                const speed = 1.8 + Math.random() * 4.8;
+                fireworksParticles.push({
+                    kind: 'spark',
+                    x: rocket.x,
+                    y: rocket.y,
+                    previousX: rocket.x,
+                    previousY: rocket.y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    color: Math.random() < 0.2 ? colors[Math.floor(Math.random() * colors.length)] : color,
+                    life: 1,
+                    decay: 0.012 + Math.random() * 0.012,
+                    gravity: 0.025 + Math.random() * 0.035,
+                    width: 1 + Math.random() * 2.2
+                });
+            }
+        }
+
+        function animateConfetti() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            confettiCtx.clearRect(0, 0, width, height);
+
+            for (let i = confettiParticles.length - 1; i >= 0; i--) {
+                const p = confettiParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += p.gravity;
+                p.rotation += p.rSpeed;
+                p.opacity -= 0.008;
+
+                confettiCtx.save();
+                confettiCtx.globalAlpha = Math.max(0, p.opacity);
+                confettiCtx.translate(p.x, p.y);
+                confettiCtx.rotate((p.rotation * Math.PI) / 180);
+                confettiCtx.fillStyle = p.color;
+
+                if (p.shape === 'circle') {
+                    confettiCtx.beginPath();
+                    confettiCtx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+                    confettiCtx.fill();
+                } else {
+                    confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 1.5);
+                }
+
+                confettiCtx.restore();
+
+                if (p.opacity <= 0 || p.y > height + 40) {
+                    confettiParticles.splice(i, 1);
+                }
+            }
+
+            for (let i = fireworksParticles.length - 1; i >= 0; i--) {
+                const particle = fireworksParticles[i];
+
+                if (particle.kind === 'rocket') {
+                    particle.progress++;
+                    const progress = Math.min(particle.progress / particle.duration, 1);
+                    particle.x = particle.startX + (particle.targetX - particle.startX) * progress;
+                    particle.y = particle.startY + (particle.targetY - particle.startY) * progress;
+                    particle.trail.push({ x: particle.x, y: particle.y });
+                    if (particle.trail.length > particle.trailLength) particle.trail.shift();
+
+                    confettiCtx.save();
+                    confettiCtx.beginPath();
+                    confettiCtx.moveTo(particle.trail[0].x, particle.trail[0].y);
+                    particle.trail.forEach(point => confettiCtx.lineTo(point.x, point.y));
+                    confettiCtx.strokeStyle = particle.color;
+                    confettiCtx.lineWidth = 3;
+                    confettiCtx.shadowColor = particle.color;
+                    confettiCtx.shadowBlur = 14;
+                    confettiCtx.stroke();
+                    confettiCtx.restore();
+
+                    if (progress >= 1) {
+                        explodeFirework(particle, ['#ff3158', '#a855f7', '#22d3ee', '#34d399', '#ffb703', '#fff275', '#ff72c6', '#ffffff']);
+                        fireworksParticles.splice(i, 1);
+                    }
+                    continue;
+                }
+
+                particle.previousX = particle.x;
+                particle.previousY = particle.y;
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.vy += particle.gravity;
+                particle.vx *= 0.99;
+                particle.life -= particle.decay;
+
+                confettiCtx.save();
+                confettiCtx.globalAlpha = Math.max(0, particle.life);
+                confettiCtx.beginPath();
+                confettiCtx.moveTo(particle.previousX, particle.previousY);
+                confettiCtx.lineTo(particle.x, particle.y);
+                confettiCtx.strokeStyle = particle.color;
+                confettiCtx.lineWidth = particle.width;
+                confettiCtx.shadowColor = particle.color;
+                confettiCtx.shadowBlur = 10;
+                confettiCtx.stroke();
+                confettiCtx.restore();
+
+                if (particle.life <= 0) {
+                    fireworksParticles.splice(i, 1);
+                }
+            }
+
+            if (confettiParticles.length > 0 || fireworksParticles.length > 0) {
+                confettiFrame = requestAnimationFrame(animateConfetti);
+                return;
+            }
+            confettiFrame = null;
+        }
+
+        function startConfettiAnimation() {
+            if (confettiFrame === null) {
+                confettiFrame = requestAnimationFrame(animateConfetti);
+            }
+        }
+    </script>
+</body>
+</html>
